@@ -1,78 +1,103 @@
 import streamlit as st
 import pandas as pd
-from collections import Counter # Biblioteca padrão do Python para contar palavras (Nuvem de palavras)
-import io
+from collections import Counter
 
-st.set_page_config(page_title="Dashboard ESG - TP2", layout="wide")
-st.title("💧 Painel Dinâmico de Saneamento e Sustentabilidade")
+# 1. Configuração Inicial
+st.set_page_config(page_title="Dashboard ODS 6", layout="wide")
+st.title("💧 Painel Dinâmico: Saneamento e Meio Ambiente")
 
 # ==========================================
-# 1. CACHE DATA (Trabalho Caro)
+# 2. CACHE DATA (Performance)
 # ==========================================
-# Utilizamos @st.cache_data para ler o arquivo do scraping apenas uma vez, 
-# compartilhando o resultado com todos os usuários e melhorando a performance.
+# Lendo o arquivo TXT que o nosso script de web scraping gerou[cite: 3]
 @st.cache_data
 def carregar_noticias():
     try:
         with open("data/noticias.txt", "r", encoding="utf-8") as f:
-            return f.readlines()
+            # Retorna uma lista limpando os espaços em branco de cada linha
+            return [linha.strip() for linha in f.readlines() if linha.strip()]
     except FileNotFoundError:
-        return [] # Fallback caso o web scraping ainda não tenha sido rodado
+        return []
 
-noticias = carregar_noticias()
-
-# ==========================================
-# 2. STATE SESSION (Memória do Usuário)
-# ==========================================
-# Inicializa uma memória para o usuário não perder os estados favoritados a cada atualização da página.
-if 'favoritos' not in st.session_state:
-    st.session_state['favoritos'] = []
-
-st.sidebar.header("Filtros Interativos")
-novo_favorito = st.sidebar.selectbox("Adicionar Estado aos Favoritos:", ["SP", "RJ", "MG", "BA", "RO"])
-
-if st.sidebar.button("Favoritar"):
-    if novo_favorito not in st.session_state['favoritos']:
-        st.session_state['favoritos'].append(novo_favorito) # Acumulando dados na sessão
-
-if st.sidebar.button("Limpar Favoritos"):
-    st.session_state['favoritos'] = [] # Resetando a memória
-
-st.sidebar.write("Estados Favoritados:", st.session_state['favoritos'])
+lista_noticias = carregar_noticias()
 
 # ==========================================
-# 3. ESTATÍSTICAS E CONTAGEM (Nuvem de Palavras)
+# 3. SESSION STATE (Memória do Usuário)
 # ==========================================
-st.subheader("📰 Análise de Notícias (Web Scraping)")
-if noticias:
-    st.write(f"**Total de notícias extraídas:** {len(noticias)}")
+if 'termos_buscados' not in st.session_state:
+    st.session_state['termos_buscados'] = []
+
+# ==========================================
+# 4. FILTROS INTERATIVOS COM FORMULÁRIO
+# ==========================================
+st.sidebar.header("Filtros de Notícias")
+
+# O st.form evita que a página recarregue a cada caractere digitado[cite: 12]
+with st.sidebar.form("filtros_form"):
+    st.write("Filtre o conteúdo raspado da web:")
     
-    # Fazer nuvem de palavras é basicamente contar palavras, 
-    # o que pode ser feito com a biblioteca padrão do Python.
-    texto_completo = " ".join(noticias).lower()
-    palavras = [p for p in texto_completo.split() if len(p) > 3] # Filtro simples
-    contagem = Counter(palavras).most_common(5) # Pegando as 5 palavras mais comuns
+    # Substituímos o multiselect pelo text_input para buscar palavras nas frases do TXT[cite: 12]
+    termo_busca = st.text_input("Buscar palavra-chave (ex: água, clima):", "")
     
-    df_palavras = pd.DataFrame(contagem, columns=["Palavra", "Frequência"])
-    st.bar_chart(df_palavras.set_index("Palavra")) # Exibindo a estatística
+    aplicar_filtros = st.form_submit_button("Aplicar Filtros")
+
+# Salvando histórico de buscas na sessão
+if aplicar_filtros and termo_busca and termo_busca not in st.session_state['termos_buscados']:
+    st.session_state['termos_buscados'].append(termo_busca)
+
+if st.session_state['termos_buscados']:
+    st.sidebar.write("**Últimas buscas:**", st.session_state['termos_buscados'])
+    if st.sidebar.button("Limpar Histórico"):
+        st.session_state['termos_buscados'] = []
+
+# ==========================================
+# 5. APLICAÇÃO DOS FILTROS E EXIBIÇÃO
+# ==========================================
+st.subheader("📰 Radar da Mídia: Impactos Ambientais")
+
+# Filtrando a lista de textos baseada no que o usuário digitou
+noticias_filtradas = lista_noticias
+if aplicar_filtros and termo_busca:
+    noticias_filtradas = [noticia for noticia in lista_noticias if termo_busca.lower() in noticia.lower()]
+
+# ==========================================
+# 6. GRÁFICO / NUVEM DE PALAVRAS E TABELA
+# ==========================================
+if noticias_filtradas:
+    st.write(f"**Exibindo {len(noticias_filtradas)} manchete(s) encontrada(s).**")
+    
+    # Exibe as notícias em formato de tabela simples
+    df_exibicao = pd.DataFrame(noticias_filtradas, columns=["Manchetes Extraídas"])
+    st.dataframe(df_exibicao, use_container_width=True)
+    
+    st.markdown("### 📊 Frequência de Termos (Nuvem de Palavras)")
+    
+    # Contando palavras da lista filtrada
+    texto_completo = " ".join(noticias_filtradas).lower()
+    palavras = [p for p in texto_completo.split() if len(p) > 3]
+    contagem = Counter(palavras).most_common(10)
+    
+    # Plotando o gráfico
+    if contagem:
+        df_palavras = pd.DataFrame(contagem, columns=["Palavra", "Frequência"])
+        st.bar_chart(df_palavras.set_index("Palavra"))
 else:
-    st.warning("Nenhuma notícia encontrada. Rode o script de coleta web primeiro.")
+    st.warning("Nenhuma notícia encontrada com o termo buscado ou o arquivo TXT está vazio.")
 
 # ==========================================
-# 4. UPLOAD E DOWNLOAD DE ARQUIVOS
+# 7. UPLOAD E DOWNLOAD DE ARQUIVOS
 # ==========================================
-st.subheader("📂 Envio e Exportação de Dados")
+st.markdown("---")
+st.subheader("📂 Envio e Exportação de Dados Complementares")
+st.write("Insira uma base própria para análise ou baixe a nossa amostra.")
 
-# O file_uploader cria um botão para o usuário subir arquivos, e a tag 'type' restringe apenas a CSV.
-arquivo_enviado = st.file_uploader("Faça upload de uma base complementar (CSV)", type=["csv"])
+arquivo_enviado = st.file_uploader("Faça upload de uma base (CSV)", type=["csv"])
 
 if arquivo_enviado is not None:
-    # Lendo o arquivo se ele existir
     df_upload = pd.read_csv(arquivo_enviado)
     st.write("Pré-visualização dos dados enviados:")
-    st.dataframe(df_upload.head(3))
+    st.dataframe(df_upload.head())
     
-    # Preparando o dado enviado pelo usuário para download
     csv_baixar = df_upload.to_csv(index=False).encode('utf-8')
     
     st.download_button(
